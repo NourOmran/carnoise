@@ -1,0 +1,15 @@
+# The improved processing (v3) on your own machine or a server. Paths can be relative
+# to where you run carnoise, or absolute. Run:  carnoise batch -c config/local_v3.toml
+# Anything not set here uses the defaults explained in config/colab_v3.toml.
+
+[paths]
+data_root = "data/ensense"            # contains files.csv
+out_root  = "data/ensense_denoise_carnoise_v3"
+tmp_root  = "data/work"
+
+[selection]
+max_files = 0                         # 0 = all
+
+[dsp]
+profile = "carnoise_v3"
+algorithm = "v3"

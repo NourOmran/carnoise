@@ -14,6 +14,7 @@ from ..io.audio import require_ffmpeg
 from ..io.storage import is_complete
 from .logs import RunLogs, lock_run_config
 from .manifest import build_manifest, safe_source
+from ..speed import find_gps_csv
 from .processor import FileOutcome, process_file
 
 log = logging.getLogger("carnoise")
@@ -92,8 +93,11 @@ class BatchRunner:
                 started = time.perf_counter()
                 try:
                     with tempfile.TemporaryDirectory(prefix="ensense_", dir=str(cfg.tmp_root)) as scratch:
+                        gps = find_gps_csv(cfg.data_root, str(row["unit"])) if cfg.dsp.algorithm == "v3" else None
+                        start = str(row.get("start_utc", "") or "")
                         out = process_file(safe_source(cfg.data_root, src_key), dest, Path(scratch), cfg.dsp,
-                                           cfg.chunking, cfg.output_subtype, cfg.other_sample_rates)
+                                           cfg.chunking, cfg.output_subtype, cfg.other_sample_rates,
+                                           gps_csv=gps, start_utc=start if start != "nan" else "")
                     logs.success(metrics_row(row, cfg.profile, out), dsp_row(row, cfg, out))
                     stats.processed += 1
                     log.info(f"[{index}/{total}] OK   {row['group']}/{row['unit']} {Path(src_key).name} "

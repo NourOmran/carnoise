@@ -3,6 +3,15 @@
 There's no trained model here. It's all classic signal processing, and it runs offline, so each
 step can look both backwards and forwards in time. Input is 48 kHz audio.
 
+There are two versions, chosen with `algorithm` in the config:
+
+- **v3 (profile `carnoise_v3`): use this one.** It came out of a full evaluation against the QE
+  request: controlled mixtures with a known clean reference, half used for tuning and half held
+  back for testing, plus 87 clips of real driving from all 13 units. What it changes, and why, is
+  described [at the end of this page](#v3-what-changed-and-why).
+- **v1 (profile `carnoise_v1`)** is the original processing, described step by step below. It's
+  kept so folders already processed with it can still be resumed and compared.
+
 A note on stereo first. Some of the older recorders write the same signal to both channels. When
 the two channels are near-identical (less than -40 dB apart), the file is processed once as mono
 and the result is copied back to both channels. When they really are two microphones, both
@@ -70,7 +79,7 @@ electronics. One example is the cluster of slowly drifting tones between 520 and
 `tonal_cells_share` tells you how much of the 150 Hz to 4 kHz range got touched. It's usually 1
 to 4%.
 
-**Known problem: horns.** The 0.7 s averaging and the long analysis window stretch a short steady
+**Known problem in v1: horns (fixed in v3).** The 0.7 s averaging and the long analysis window stretch a short steady
 sound out to about 1.5 s, which is enough to pass the "keeps showing up" test. So a car horn, or
 anything else with a steady pitch, gets treated as a hum. I measured it with generated test sounds:
 
@@ -82,12 +91,9 @@ anything else with a steady pitch, gets treated as a hum. I measured it with gen
 So horns and steady alarms come out roughly 12 dB quieter, while birds, sirens and voices aren't
 touched, because their pitch keeps moving.
 
-The fix I have in mind is to judge how long a tone lasts before the averaging, and to require it to
-last at least 3 seconds. A fan or alternator hums for minutes, so those would still be caught. A
-horn lasting a second or two wouldn't be. This changes the output, so it will go in as a new
-profile. The test `test_short_steady_horn_is_kept` in `tests/test_dsp.py` is marked as an expected
-failure for now and will start passing once it's fixed. Until then, if horns matter, turn this step
-off with `remove_tonal_lines = false`.
+v3 fixes this by asking for much longer persistence (see below). The v1 test
+`test_short_steady_horn_is_kept` in `tests/test_dsp.py` stays marked as an expected failure, because
+v1 itself is left unchanged; `tests/test_v3.py` checks that v3 keeps horns.
 
 ## 2c. Low-pass
 
@@ -135,3 +141,58 @@ cut by more than that.
 Be careful judging results by level alone. Taking out heavy rumble can drop the overall level by
 as much as 26 dB without removing any street sound. Listen to a mix of units, speeds and weather
 before deciding whether something is better.
+
+## v3: what changed and why
+
+Every change below was measured on the same mixtures and clips, against two baselines: plain gain
+and high-pass only. The full results are in the evaluation report.
+
+**Click repair is gone.** It was the most damaging step in v1. Bird chirps, knocks and other short
+street sounds look just like mount clicks to it, and on clean test events v1 took about 50 dB off
+bird chirps and 8 dB off knocks. Without it, separation improved on 89% of the test mixtures.
+
+**Noise suppression tracks the floor more slowly.** v1 followed the quietest level over about
+1.5 s, which is shorter than a sentence, so during continuous speech it took the voice for noise.
+v3 uses about 3.2 s and a smaller bias (1.4 instead of 1.8). It also really gets GPS speed now:
+v1 looked for a `<name>_speed.csv` next to each recording, which this dataset doesn't have, so every
+file ran at the "stopped" setting. v3 reads `gps/<unit>_gps.csv` and lowers the floor from -12 dB
+when stopped to -18 dB at 100 km/h and above.
+
+**Horn-safe tonal lines.** A line now has to be present for at least 85% of a 10-second window
+(v1: 60% of 2 seconds), with up to 9 Hz of drift allowed. Fans and alternators hum for minutes and
+are still cut by about 16 dB. Horns of up to 4 seconds lose at most 0.6 dB (v1: 11-13 dB).
+
+**Wind removal with two microphones** (stage 3, `dsp/wind.py`). Wind is turbulence right at each
+mic, so the two mics disagree, while sound from the street reaches both in step. Below 600 Hz, each
+mic is pulled down to the other mic's level, and anything incoherent between them is reduced, by
+12 dB at most. The stage only switches on while the mics' low-frequency coherence is low, meaning
+when there's wind, and does nothing the rest of the time. On held-out wind clips it removes about
+3 dB more car noise in 100 Hz-1 kHz. Recordings with one mic or copied channels skip it.
+
+**Optional engine notch** (`engine_notch = true`). The engine's pitch is found from its whole
+harmonic series rather than the strongest low peak, with checks so a voice can't pass as an engine,
+and every harmonic including the fundamental is notched, up to 1.5 kHz. On real drives it takes the
+engine lines down about 11 dB further. It costs some separation (median SI-SDR improvement on the
+held-out mixtures goes from +13.4 to +11.7 dB), because it also notches whatever street sound happens to sit on an engine harmonic,
+so it's off by default. Try it on the listening files and decide by ear.
+
+**What stays the same:** declipping, the automatic high-pass and low-pass, and the way stereo and
+copied-channel files are handled.
+
+**Chunked processing.** Long files are still processed in about 44-second chunks with context on
+both sides. For v3, chunked output matches whole-file output to within -50 dB or better (v1:
+-150 dB), well below anything audible.
+
+### Results in short
+
+On held-out mixtures (not used for tuning), median SI-SDR improvement:
+
+| | Median SI-SDR improvement |
+|---|---|
+| High-pass only | +7.2 dB |
+| v1 | +6.2 dB |
+| v3 | +13.4 dB |
+
+On real drives, street sounds stand out of the car's noise floor by about 10 dB more with v3,
+against under 2 dB with v1. Every type of test event (horn, siren, birds, dog, passing car, knock)
+keeps its level.

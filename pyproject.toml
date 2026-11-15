@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "carnoise"
-version = "1.0.0"
+version = "1.1.0"
 description = "Removes a recording car's own noise (engine, road, wind, rattle) from street audio recorded with mics on the car"
 readme = "README.md"
 authors = [{ name = "Nour Omran" }]

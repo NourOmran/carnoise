@@ -73,12 +73,13 @@ addition is a `source_sample_rate_hz` column in `dsp_details.csv`.
 | `dsp/declip.py` | Repairs clipped peaks |
 | `dsp/engine.py` | Tracks the engine and removes its harmonics |
 | `dsp/filters.py` | High-pass and low-pass, and picking them automatically |
-| `dsp/tonal.py` | Removes steady hums |
-| `dsp/clicks.py` | Repairs mount rattle |
+| `dsp/tonal.py` | Removes steady hums (v1, and the horn-safe v3 version) |
+| `dsp/clicks.py` | Repairs mount rattle (v1 only) |
+| `dsp/wind.py` | Removes wind using the two microphones (v3) |
 | `dsp/noise.py` | Estimates the background noise and reduces it |
 | `dsp/spectral.py`, `dsp/channels.py` | Small helpers |
 | `analysis.py` | The once-per-file decisions |
-| `speed.py` | Reads the GPS speed files |
+| `speed.py` | Reads GPS speed: per-file speed CSVs, or the unit's `gps/` log (v3) |
 | `pipeline.py` | `denoise()` for one block of audio, `denoise_stream()` for whole files in chunks |
 | `io/audio.py` | FFmpeg probing and decoding |
 | `io/storage.py` | The safe copy to Drive |

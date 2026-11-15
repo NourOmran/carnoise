@@ -20,12 +20,13 @@ from .constants import FS, GRID, STATS_BLOCK
 from .dsp.channels import as_channels, select_channels
 from .dsp.clicks import repair_clicks
 from .dsp.declip import declip_channels
-from .dsp.engine import remove_engine_orders
+from .dsp.engine import remove_engine_orders, remove_engine_orders_v3
 from .dsp.filters import auto_highpass, auto_lowpass, highpass, lowpass
-from .dsp.noise import FLOOR_DB, noise_psd, wiener_gain
+from .dsp.noise import FLOOR_DB, OVERSUB, V3_FLOOR_DB, V3_NOISE_BIAS, V3_NOISE_WINDOW, noise_psd, wiener_gain
 from .dsp.spectral import istft, stft
-from .dsp.tonal import remove_tonal_lines
-from .speed import speed_per_frame
+from .dsp.tonal import remove_tonal_lines, remove_tonal_lines_v3
+from .dsp.wind import wind_gain
+from .speed import SpeedSource, speed_per_frame
 
 
 @dataclass(frozen=True)
@@ -51,14 +52,14 @@ def _resolve_lp(setting, auto_value: Callable[[], Optional[float]]) -> Optional[
     return None if setting in ("none", None) else float(setting)
 
 
-def denoise(x: np.ndarray, cfg: DSPConfig = DSPConfig(), speed_csv: Optional[Path] = None,
+def denoise(x: np.ndarray, cfg: DSPConfig = DSPConfig(), speed_csv: SpeedSource = None,
             decisions: Optional[FileDecisions] = None, t0: float = 0.0) -> tuple[np.ndarray, DenoiseInfo]:
     """Remove car noise from an (n,) or (n, C) float array at 48 kHz.
 
     Args:
         x: audio, float, full scale +-1.
         cfg: DSP settings.
-        speed_csv: optional per-second GPS speed file.
+        speed_csv: GPS speed: a per-second speed CSV, a per-second array in km/h, or None.
         decisions: per-file decisions from :func:`carnoise.analysis.file_stats`. Pass them when
             ``x`` is one chunk of a longer file; without them they are computed from ``x``.
         t0: start time of ``x`` within its file (s), to line up the speed track.
@@ -67,6 +68,8 @@ def denoise(x: np.ndarray, cfg: DSPConfig = DSPConfig(), speed_csv: Optional[Pat
         ``(y, info)``. ``y`` is (n, C') where C' is 1 for a duplicate-channel input.
     """
     x = as_channels(x) if decisions is None else select_channels(x, decisions.mono)
+    if cfg.algorithm == "v3":
+        return _denoise_v3(x, cfg, speed_csv, decisions, t0)
     x, runs = declip_channels(x)                                        # 0 declip
     y, f0 = remove_engine_orders(x)                                     # 1 engine orders
     hp = _resolve_hp(cfg.high_pass_hz, (lambda: decisions.hp) if decisions else (lambda: auto_highpass(x)))
@@ -87,6 +90,38 @@ def denoise(x: np.ndarray, cfg: DSPConfig = DSPConfig(), speed_csv: Optional[Pat
     return out, DenoiseInfo(channels=x.shape[1], clip_runs=runs, hp=hp, lp=lp, tones=tone_frac,
                             clicks=int(hit.sum()), speed_mean=float(speed.mean()),
                             engine_tracked=float(np.mean(~np.isnan(f0))))
+
+
+def _denoise_v3(x: np.ndarray, cfg: DSPConfig, speed: SpeedSource, decisions: Optional[FileDecisions],
+                t0: float) -> tuple[np.ndarray, DenoiseInfo]:
+    """Profile carnoise_v3. Differences from v1, each measured in the QE evaluation:
+    no click repair (it removed bird calls and knocks); horn-safe tonal lines; an optional
+    harmonic-sum engine notch; two-mic wind removal that only acts during wind; a Wiener stage that
+    tracks the floor over ~3 s and goes deeper with GPS speed."""
+    x, runs = declip_channels(x)                                        # 0 declip
+    y, engine_share = x, 0.0
+    if cfg.engine_notch:
+        y, f0 = remove_engine_orders_v3(x)                              # 1 engine (optional)
+        engine_share = float(np.mean(~np.isnan(f0)))
+    hp = _resolve_hp(cfg.high_pass_hz, (lambda: decisions.hp) if decisions else (lambda: auto_highpass(x)))
+    y = highpass(y, hp)                                                 # 2 high-pass
+    tone_frac = 0.0
+    if cfg.remove_tonal_lines:
+        y, tone_frac = remove_tonal_lines_v3(y)                         # 2b tonal lines (horn-safe)
+    lp = _resolve_lp(cfg.low_pass_hz, (lambda: decisions.lp) if decisions else (lambda: auto_lowpass(x)))
+    if lp:
+        y = lowpass(y, lp)                                              # 2c low-pass
+    f, X = stft(y)
+    if X.shape[0] == 2:
+        X = X * wind_gain(X, f)                                         # 3 wind (two real mics only)
+    speed_frames = speed_per_frame(speed, X.shape[2], t0)
+    P = np.mean(np.abs(X) ** 2, axis=0)
+    floor = (V3_FLOOR_DB[0] + cfg.floor_shift_db, V3_FLOOR_DB[1] + cfg.floor_shift_db)
+    N = noise_psd(P, win_frames=V3_NOISE_WINDOW, bias=V3_NOISE_BIAS)
+    G = wiener_gain(P, N, speed_frames, floor_db=floor, beta=OVERSUB)  # 4 noise
+    out = istft(X * G[None], len(x))
+    return out, DenoiseInfo(channels=x.shape[1], clip_runs=runs, hp=hp, lp=lp, tones=tone_frac, clicks=0,
+                            speed_mean=float(speed_frames.mean()), engine_tracked=engine_share)
 
 
 # ---- chunked streaming --------------------------------------------------------------------
@@ -151,7 +186,7 @@ class StreamResult:
         return self._weighted("tones")
 
 
-def _denoise_chunk(x: np.ndarray, cfg: DSPConfig, decisions: FileDecisions, speed_csv: Optional[Path],
+def _denoise_chunk(x: np.ndarray, cfg: DSPConfig, decisions: FileDecisions, speed_csv: SpeedSource,
                    t0: float) -> tuple[np.ndarray, Optional[DenoiseInfo]]:
     """One chunk with context: float32 (n, C) in, float32 (n, C) out (channel count kept)."""
     xf = np.asarray(x, dtype=np.float64)
@@ -171,7 +206,7 @@ def _denoise_chunk(x: np.ndarray, cfg: DSPConfig, decisions: FileDecisions, spee
 
 def denoise_stream(src: np.ndarray, sr: int, write: Callable[[np.ndarray], None],
                    cfg: DSPConfig = DSPConfig(), chunking: ChunkConfig = ChunkConfig(),
-                   speed_csv: Optional[Path] = None) -> StreamResult:
+                   speed_csv: SpeedSource = None) -> StreamResult:
     """Denoise a whole recording chunk by chunk.
 
     Args:
@@ -179,7 +214,7 @@ def denoise_stream(src: np.ndarray, sr: int, write: Callable[[np.ndarray], None]
         sr: sample rate; must be 48 kHz.
         write: called with each finished (n, C) float32 block, in order, clipped to +-0.999999.
         cfg, chunking: settings.
-        speed_csv: optional GPS speed file for the recording.
+        speed_csv: GPS speed for the recording: a speed CSV, a per-second array (km/h) or None.
     """
     if sr != FS:
         raise ValueError(f"Car-noise DSP is built for {FS} Hz audio; this file is {sr} Hz")

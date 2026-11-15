@@ -18,6 +18,13 @@ FLOOR_DB = (-10.0, -15.0)    # gain floor at 0 km/h and at >= 100 km/h
 OVERSUB = (1.0, 1.4)         # noise over-subtraction at 0 km/h and at >= 100 km/h
 SPEED_FULL_KMH = 100.0
 
+# Profile carnoise_v3, tuned on half of the controlled mixtures and checked on the other half.
+# Tracking the floor over ~3.2 s instead of ~1.5 s, with a smaller bias, stops continuous speech from
+# being taken for noise. The floor goes deeper as the car goes faster, and v3 really gets GPS speed.
+V3_NOISE_WINDOW = 300        # frames of 512 samples (~3.2 s)
+V3_NOISE_BIAS = 1.4
+V3_FLOOR_DB = (-12.0, -18.0)
+
 
 def noise_psd(P: np.ndarray, win_frames: int = 140, alpha: float = 0.9, bias: float = 1.8) -> np.ndarray:
     """Minimum-statistics noise power estimate for a (bins, frames) power array."""

@@ -50,7 +50,7 @@ def test_tonal_line_removed_but_rest_kept(car_audio):
 
 @pytest.mark.xfail(strict=True, reason="known limitation of carnoise_v1 (docs/algorithms.md): the tonal "
                    "stage's 0.7 s smoothing + 0.68 s window let a steady-pitch event of ~0.2 s pass the "
-                   "2 s persistence test, so horn-like sounds are cut by ~12 dB")
+                   "2 s persistence test, so horn-like sounds are cut by ~12 dB. Fixed in v3, see test_v3.py")
 def test_short_steady_horn_is_kept():
     from conftest import band_noise
     n = 12 * FS
