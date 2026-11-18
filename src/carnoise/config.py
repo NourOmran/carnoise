@@ -17,16 +17,13 @@ else:  # pragma: no cover
 
 HzSetting = Union[str, float]
 
-#: Text stored in run_config.json; identical to the Colab notebook so its output folders resume.
+#: Text stored in run_config.json. Unchanged since 1.1.0, so carnoise_v3 output folders made then still resume.
 PROCESSING_DESCRIPTION = (
-    "FFmpeg float32 decode; car-noise DSP (declip, engine orders, auto HPF, tonal lines, "
-    "auto LPF, click repair, min-statistics Wiener); preserve channels"
-)
-PROCESSING_DESCRIPTION_V3 = (
     "FFmpeg float32 decode; car-noise DSP v3 (declip, optional harmonic-sum engine notch, auto HPF, "
     "horn-safe tonal lines, auto LPF, gated two-mic wind removal, 3 s min-statistics Wiener with GPS "
     "speed from gps/<unit>_gps.csv); preserve channels"
 )
+ALGORITHM = "v3"
 
 
 def _hz(value: HzSetting, name: str, allow_none: bool) -> HzSetting:
@@ -52,24 +49,14 @@ class DSPConfig:
     low_pass_hz: HzSetting = "auto"
     #: Remove persistent narrow tones (fans, alternator, electronics).
     remove_tonal_lines: bool = True
-    #: Click threshold vs the local median; higher = fewer repairs.
-    click_k: float = 5.0
     #: dB added to the Wiener gain floor: negative = stronger removal, positive = more natural.
     floor_shift_db: float = 0.0
-    #: 'v1' (the original processing) or 'v3' (the improved processing; see docs/algorithms.md).
-    algorithm: str = "v1"
-    #: v3 only: also notch the engine's harmonics. More engine drone removed, slightly less clean.
+    #: Also notch the engine's harmonics. More engine drone removed, slightly less clean.
     engine_notch: bool = False
 
     def __post_init__(self):
         object.__setattr__(self, "high_pass_hz", _hz(self.high_pass_hz, "high_pass_hz", False))
         object.__setattr__(self, "low_pass_hz", _hz(self.low_pass_hz, "low_pass_hz", True))
-        if self.click_k <= 1:
-            raise ValueError("click_k must be > 1")
-        if self.algorithm not in ("v1", "v3"):
-            raise ValueError("algorithm must be 'v1' or 'v3'")
-        if self.engine_notch and self.algorithm != "v3":
-            raise ValueError("engine_notch is a v3 setting; v1 always runs its own engine stage")
 
 
 @dataclass(frozen=True)
@@ -93,7 +80,7 @@ class BatchConfig:
     data_root: Path
     out_root: Path
     tmp_root: Path = Path("/tmp/carnoise_work")
-    profile: str = "carnoise_v1"
+    profile: str = "carnoise_v3"
     include_driving: bool = True
     include_office: bool = True
     #: None = every file; a number limits the run (smoke tests).
@@ -114,10 +101,8 @@ class BatchConfig:
             raise ValueError("select at least one of include_driving / include_office")
         if not self.profile or "/" in self.profile:
             raise ValueError("profile must be a non-empty name without '/'")
-        for algo in ("v1", "v3"):
-            other = "v3" if algo == "v1" else "v1"
-            if self.profile.endswith("_" + algo) and self.dsp.algorithm == other:
-                raise ValueError(f"profile {self.profile!r} doesn't match dsp.algorithm = {other!r}")
+        if self.profile.endswith("_v1"):
+            raise ValueError("the v1 processing was removed in carnoise 2.0; use a profile such as 'carnoise_v3'")
         if self.other_sample_rates not in ("resample", "error"):
             raise ValueError("other_sample_rates must be 'resample' or 'error'")
         if self.max_files is not None and self.max_files <= 0:
@@ -133,20 +118,15 @@ class BatchConfig:
         Same keys and values as the Colab notebook, so a notebook run can be resumed here.
         """
         d = self.dsp
-        lock = {
+        return {
             "include_driving": self.include_driving, "include_office": self.include_office,
             "full_recordings": True, "profile": self.profile,
             "high_pass_hz": d.high_pass_hz, "low_pass_hz": d.low_pass_hz,
-            "remove_tonal_lines": d.remove_tonal_lines, "click_k": d.click_k,
-            "floor_shift_db": d.floor_shift_db, "block_seconds": self.chunking.block_seconds,
-            "context_seconds": self.chunking.context_seconds,
-            "output_subtype": self.output_subtype,
-            "processing": PROCESSING_DESCRIPTION,
+            "remove_tonal_lines": d.remove_tonal_lines, "floor_shift_db": d.floor_shift_db,
+            "block_seconds": self.chunking.block_seconds, "context_seconds": self.chunking.context_seconds,
+            "output_subtype": self.output_subtype, "processing": PROCESSING_DESCRIPTION,
+            "algorithm": ALGORITHM, "engine_notch": d.engine_notch,
         }
-        if d.algorithm != "v1":           # v1 folders keep exactly the keys they were written with
-            lock.update(algorithm=d.algorithm, engine_notch=d.engine_notch, processing=PROCESSING_DESCRIPTION_V3)
-            del lock["click_k"]             # v3 has no click repair
-        return lock
 
 
 def _pick(cls, table: dict) -> dict:
@@ -174,6 +154,9 @@ def load_config(path: Union[str, Path], **overrides: Any) -> BatchConfig:
     dsp_table = dict(raw.get("dsp", {}))
     if "profile" in dsp_table:          # profile is written under [dsp] for readability
         top["profile"] = dsp_table.pop("profile")
+    algorithm = str(dsp_table.pop("algorithm", ALGORITHM))   # accepted for configs written for 1.1
+    if algorithm != ALGORITHM:
+        raise ValueError(f"algorithm {algorithm!r} is no longer available; carnoise 2.0 only has v3")
     if "subtype" in top:
         top["output_subtype"] = top.pop("subtype")
     if top.get("max_files") == 0:

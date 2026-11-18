@@ -1,4 +1,4 @@
-"""Profile carnoise_v3: the improved processing chosen in the QE evaluation."""
+"""Behaviour the QE evaluation asked for: events kept, wind and fans removed, GPS speed used."""
 import json
 import shutil
 
@@ -10,13 +10,13 @@ import soundfile as sf
 from carnoise import BatchConfig, BatchRunner, ChunkConfig, DSPConfig, denoise, denoise_stream, file_stats, load_config
 from carnoise.constants import STATS_BLOCK
 from carnoise.dsp import stft, istft
-from carnoise.dsp.engine import N_FFT as ENGINE_NFFT, track_f0_harmonic
-from carnoise.dsp.tonal import remove_tonal_lines_v3
+from carnoise.dsp.engine import N_FFT as ENGINE_NFFT, track_f0
+from carnoise.dsp.tonal import remove_tonal_lines
 from carnoise.dsp.wind import wind_gain
 from carnoise.speed import speed_from_gps, speed_per_frame
 from conftest import FS, STREET_F0, band_noise, make_car_audio
 
-V3 = DSPConfig(algorithm="v3")
+V3 = DSPConfig()
 
 
 def level_db(x, lo, hi):
@@ -35,7 +35,7 @@ def test_horn_kept_while_fan_removed(horn_s):
     s, m = 4 * FS, int(horn_s * FS)
     th = np.arange(m) / FS
     x[s:s + m] += sum(0.03 / h * np.sin(2 * np.pi * 400 * h * th) for h in (1, 2, 3))
-    y, _ = remove_tonal_lines_v3(x[:, None])
+    y, _ = remove_tonal_lines(x[:, None])
     assert level_db(y[s:s + m, 0], 300, 1300) > level_db(x[s:s + m], 300, 1300) - 1.0     # horn kept
     fan = slice(12 * FS, 24 * FS)
     assert level_db(y[fan, 0], 545, 565) < level_db(x[fan], 545, 565) - 10                # fan removed
@@ -45,7 +45,7 @@ def test_v3_end_to_end_keeps_street_events(car_audio):
     x, _ = car_audio
     y, info = denoise(x, V3, np.full(20, 60.0))
     assert y.shape == x.shape and np.isfinite(y).all()
-    assert info.clicks == 0 and info.speed_mean == pytest.approx(60.0)
+    assert info.speed_mean == pytest.approx(60.0)
     assert level_db(y[:, 0], 20, 20000) < level_db(x[:, 0], 20, 20000) - 6               # car noise removed
     s = int(1.5 * FS)
     seg = slice(s, s + int(0.3 * FS))
@@ -85,7 +85,7 @@ def test_engine_tracker_finds_engine_but_not_a_voice():
     from carnoise.dsp.spectral import stft as sstft
     x, _ = make_car_audio(seconds=10, seed=2, stereo=False)
     f, X = sstft(x[:, None], ENGINE_NFFT, ENGINE_NFFT // 4)
-    f0 = track_f0_harmonic(f, np.abs(X[0]) ** 2)
+    f0 = track_f0(f, np.abs(X[0]) ** 2)
     assert np.mean(~np.isnan(f0)) > 0.8 and np.nanmedian(np.abs(f0 - 40)) < 4
     # a voice-like series: 120 Hz with vibrato and syllable on/off, no car
     rng = np.random.default_rng(3)
@@ -95,7 +95,7 @@ def test_engine_tracker_finds_engine_but_not_a_voice():
     env = (np.sin(2 * np.pi * 3 * t) > 0).astype(float)
     voice = env * sum(0.05 / h * np.sin(h * ph) for h in range(1, 15)) + 0.002 * rng.standard_normal(n)
     f, X = sstft(voice[:, None], ENGINE_NFFT, ENGINE_NFFT // 4)
-    f0 = track_f0_harmonic(f, np.abs(X[0]) ** 2)
+    f0 = track_f0(f, np.abs(X[0]) ** 2)
     assert np.mean(~np.isnan(f0)) < 0.1
 
 
@@ -115,20 +115,19 @@ def test_speed_from_gps(tmp_path):
 
 def test_settings_and_run_lock(tmp_path):
     with pytest.raises(ValueError):
-        DSPConfig(algorithm="v2")
-    with pytest.raises(ValueError):
-        DSPConfig(engine_notch=True)                                     # v1 has its own engine stage
-    with pytest.raises(ValueError):
-        BatchConfig(data_root=tmp_path, out_root=tmp_path, profile="carnoise_v3")   # v1 settings, v3 name
-    v1 = BatchConfig(data_root=tmp_path, out_root=tmp_path).run_lock()
-    assert "algorithm" not in v1 and "click_k" in v1                     # old folders still resume
-    v3 = BatchConfig(data_root=tmp_path, out_root=tmp_path, profile="carnoise_v3", dsp=V3).run_lock()
-    assert v3["algorithm"] == "v3" and "click_k" not in v3 and v3["processing"] != v1["processing"]
+        BatchConfig(data_root=tmp_path, out_root=tmp_path, profile="carnoise_v1")   # v1 is gone
+    lock = BatchConfig(data_root=tmp_path, out_root=tmp_path).run_lock()
+    # same lock as carnoise 1.1, so v3 output folders started then still resume
+    assert lock["profile"] == "carnoise_v3" and lock["algorithm"] == "v3" and "click_k" not in lock
+    assert lock["processing"].startswith("FFmpeg float32 decode; car-noise DSP v3")
     toml = tmp_path / "c.toml"
     toml.write_text('[paths]\ndata_root="d"\nout_root="o"\n[dsp]\nprofile="carnoise_v3"\nalgorithm="v3"\n'
                     'engine_notch=true\n')
-    cfg = load_config(toml)
-    assert cfg.profile == "carnoise_v3" and cfg.dsp.algorithm == "v3" and cfg.dsp.engine_notch
+    cfg = load_config(toml)                                              # 1.1-style config still loads
+    assert cfg.profile == "carnoise_v3" and cfg.dsp.engine_notch
+    toml.write_text('[paths]\ndata_root="d"\nout_root="o"\n[dsp]\nalgorithm="v1"\n')
+    with pytest.raises(ValueError, match="only has v3"):
+        load_config(toml)
 
 
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg not installed")

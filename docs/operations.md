@@ -4,26 +4,23 @@
 
 ```
 <data_root>/
-  files.csv                                columns: file, unit, group, and start_utc for v3 (others ignored)
+  files.csv                 columns: file, unit, group, start_utc (others ignored)
   audio/<group>/<unit>/<name>.flac or .wav
-  audio/<group>/<unit>/<name>_speed.csv    optional GPS speed, one row per second, column speed_kmh
-  gps/<unit>_gps.csv                       v3: the unit's GPS log (audio_file, time_utc, speed_kmh, fix_quality)
+  gps/<unit>_gps.csv        the unit's GPS log (audio_file, time_utc, speed_kmh, fix_quality)
 ```
 
-**Where speed comes from.** Both versions use a `<name>_speed.csv` if there is one. If there isn't,
-v3 takes the recording's rows from `gps/<unit>_gps.csv` (rows with a GPS fix only), lined up using
-`start_utc` from `files.csv`. v1 doesn't read the GPS logs, so on the ensense dataset it ran every
-file at the gentlest setting. `dsp_details.csv` shows which speed source each file used.
+**Where speed comes from.** Each recording's rows are taken from `gps/<unit>_gps.csv` (rows with a
+GPS fix only), lined up using `start_utc` from `files.csv`. A recording with no GPS rows runs at the
+gentlest ("stopped") setting. `dsp_details.csv` shows the GPS log each file used (`speed_file`;
+empty means no speed was found).
 
 `group` is either `driving` or `office`. The paths in `files.csv` are relative to the data folder,
-and anything pointing outside it is refused. A speed file can also sit in a `speed/` folder next to
-the audio folder.
+and anything pointing outside it is refused.
 
 ## On Google Colab
 
 1. Copy this repo folder to your Drive, for example `MyDrive/carnoise-pipeline`. The notebook uses
-   `config/colab_v3.toml` (the improved processing). Change `CONFIG` at the top to
-   `config/colab.toml` only if you need to continue an old v1 folder.
+   `config/colab.toml`.
 2. Open `notebooks/colab_runner.ipynb` in Colab and run the cells from top to bottom.
 3. If Colab disconnects, reconnect and run them again. Files that are already done are skipped.
 
@@ -35,7 +32,7 @@ Colab.
 
 ```bash
 pip install /path/to/carnoise-pipeline
-carnoise batch -c config/local_v3.toml && carnoise report -c config/local_v3.toml
+carnoise batch -c config/local.toml && carnoise report -c config/local.toml
 ```
 
 If any file fails, the command exits with code 1, so a scheduler (cron or similar) can tell you.
@@ -52,8 +49,8 @@ New recordings added to `files.csv` get picked up on the next run, and the old o
                            peak, clipped samples, file size
   errors.csv               one row per file that failed, with the error
   dsp_details.csv          what the processing decided for each file: stereo or duplicate channels,
-                           high-pass and low-pass, clip repairs, engine tracking, hum removal,
-                           speed file, number of chunks, original sample rate
+                           high-pass and low-pass, clip repairs, engine tracking (engine notch
+                           only), hum removal, GPS log used, number of chunks, original sample rate
   completion_by_unit.csv   written by `carnoise report`
 ```
 
@@ -70,9 +67,8 @@ Every output is 48 kHz with the same number of channels as its source.
   settings, point `out_root` at a new folder and change `profile`.
 - `max_files`, `other_sample_rates`, `checkpoint_every` and the paths can be changed freely between
   runs.
-- A folder started by the old Colab notebook can be continued with this package, using the v1
-  config (`config/colab.toml`). v3 writes to its own folder (`..._v3`) with its own
-  `run_config.json`, so the two never mix.
+- Output folders started with carnoise 1.1 (profile `carnoise_v3`) can be continued with this
+  version: the processing and the lock are the same.
 
 ## When something goes wrong
 

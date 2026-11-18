@@ -1,14 +1,14 @@
-# Settings for running the whole dataset on your own machine or a server. Paths can be relative
-# to where you run carnoise, or absolute. Run:  carnoise batch -c config/local.toml
+# Run on your own machine or a server. Paths can be relative to where you run carnoise, or absolute.
+# Run:  carnoise batch -c config/local.toml
 # Anything not set here uses the defaults explained in config/colab.toml.
 
 [paths]
-data_root = "data/ensense"            # contains files.csv
-out_root  = "data/ensense_denoise_carnoise"
+data_root = "data/ensense"            # contains files.csv and gps/
+out_root  = "data/ensense_denoise_carnoise_v3"
 tmp_root  = "data/work"
 
 [selection]
 max_files = 0                         # 0 = all
 
 [dsp]
-profile = "carnoise_v1"
+profile = "carnoise_v3"

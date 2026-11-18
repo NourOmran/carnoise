@@ -13,7 +13,7 @@ from .batch import BatchRunner, completion_by_unit, process_file
 from .config import BatchConfig, ChunkConfig, DSPConfig, load_config
 from .pipeline import DenoiseInfo, denoise, denoise_stream
 
-__version__ = "1.1.0"
+__version__ = "2.0.0"
 
 __all__ = ["denoise", "denoise_stream", "DenoiseInfo", "DSPConfig", "ChunkConfig", "BatchConfig",
            "load_config", "FileDecisions", "file_stats", "BatchRunner", "process_file",

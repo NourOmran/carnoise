@@ -7,7 +7,7 @@ them changes the output. User-facing settings live in :mod:`carnoise.config`.
 #: Sample rate the DSP is tuned for. Other rates are resampled (or rejected) before processing.
 FS = 48000
 
-#: Main STFT (click repair + Wiener stage): 2048-sample window (42.7 ms), 75 % overlap.
+#: Main STFT (wind + Wiener stages): 2048-sample window (42.7 ms), 75 % overlap.
 NFFT = 2048
 HOP = 512
 

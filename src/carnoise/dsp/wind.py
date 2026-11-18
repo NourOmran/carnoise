@@ -1,4 +1,4 @@
-"""Stage 3w (profile carnoise_v3) - wind on the microphones, for two real microphones.
+"""Stage 3 - wind on the microphones, for two real microphones.
 
 Wind is turbulence right at each microphone. That makes it different from street sound in two
 ways: it's incoherent between the two mics, and it's often much louder at one mic than the other.

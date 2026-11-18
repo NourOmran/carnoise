@@ -1,32 +1,30 @@
-"""Stage 4 - broadband noise reduction (road, tyre, wind, remaining engine).
+"""Stage 4 - broadband noise reduction (road, tyre, remaining wind and engine).
 
-Noise estimate: minimum statistics. Per frequency bin, the power is smoothed recursively,
-its minimum is taken over ~1.5 s and bias-corrected. This follows the slowly changing car
-noise floor while ignoring short street events that sit on top of it.
+Noise estimate: minimum statistics. Per frequency bin, the power is smoothed recursively, its
+minimum is taken over ~3.2 s and bias-corrected. This follows the slowly changing car noise floor
+while ignoring street events that sit on top of it (a window this long also stops continuous speech
+from being taken for noise).
 
 Gain: decision-directed Wiener filter, smoothed 3x3 to tame "musical noise". GPS speed
 (0-100 km/h) raises the over-subtraction (1.0 -> 1.4) and lowers the gain floor
-(-10 -> -15 dB), because road and wind noise grow with speed. The floor is what keeps the
+(-12 -> -18 dB), because road and wind noise grow with speed. The floor is what keeps the
 street sounding natural: no bin is ever cut by more than it.
+
+Settings tuned on half of the QE evaluation's controlled mixtures and checked on the other half.
 """
 from __future__ import annotations
 
 import numpy as np
 from scipy import ndimage, signal
 
-FLOOR_DB = (-10.0, -15.0)    # gain floor at 0 km/h and at >= 100 km/h
+FLOOR_DB = (-12.0, -18.0)    # gain floor at 0 km/h and at >= 100 km/h
 OVERSUB = (1.0, 1.4)         # noise over-subtraction at 0 km/h and at >= 100 km/h
 SPEED_FULL_KMH = 100.0
-
-# Profile carnoise_v3, tuned on half of the controlled mixtures and checked on the other half.
-# Tracking the floor over ~3.2 s instead of ~1.5 s, with a smaller bias, stops continuous speech from
-# being taken for noise. The floor goes deeper as the car goes faster, and v3 really gets GPS speed.
-V3_NOISE_WINDOW = 300        # frames of 512 samples (~3.2 s)
-V3_NOISE_BIAS = 1.4
-V3_FLOOR_DB = (-12.0, -18.0)
+NOISE_WINDOW = 300           # frames of 512 samples (~3.2 s)
+NOISE_BIAS = 1.4
 
 
-def noise_psd(P: np.ndarray, win_frames: int = 140, alpha: float = 0.9, bias: float = 1.8) -> np.ndarray:
+def noise_psd(P: np.ndarray, win_frames: int = NOISE_WINDOW, alpha: float = 0.9, bias: float = NOISE_BIAS) -> np.ndarray:
     """Minimum-statistics noise power estimate for a (bins, frames) power array."""
     S = signal.lfilter([1 - alpha], [1, -alpha], P, axis=1)
     N = ndimage.minimum_filter1d(S, size=win_frames, axis=1, mode="nearest")

@@ -93,7 +93,7 @@ class BatchRunner:
                 started = time.perf_counter()
                 try:
                     with tempfile.TemporaryDirectory(prefix="ensense_", dir=str(cfg.tmp_root)) as scratch:
-                        gps = find_gps_csv(cfg.data_root, str(row["unit"])) if cfg.dsp.algorithm == "v3" else None
+                        gps = find_gps_csv(cfg.data_root, str(row["unit"]))
                         start = str(row.get("start_utc", "") or "")
                         out = process_file(safe_source(cfg.data_root, src_key), dest, Path(scratch), cfg.dsp,
                                            cfg.chunking, cfg.output_subtype, cfg.other_sample_rates,

@@ -34,6 +34,8 @@ machinery.
    folder.
 7. Add a row to the CSV logs.
 
+GPS speed is read from `gps/<unit>_gps.csv` in step 3 and lined up with the recording's start time.
+
 ## Why it's built this way
 
 **Some decisions are made once per file.** If each chunk picked its own filter settings, you
@@ -43,8 +45,9 @@ could hear the sound change every 44 seconds. So those settings come from the si
 **Chunk edges line up with the processing frames.** Chunk lengths are multiples of 32768 samples,
 the largest window any step uses. That way the audio near a chunk edge gets processed the same
 way in both neighbouring chunks, and the joins can't be heard. The test suite checks that chunked
-output matches processing the whole file in one go to within -40 dB. The engine tracker fills gaps
-using only nearby frames, for the same reason.
+output matches processing the whole file in one go to within -40 dB (in practice -50 to -64 dB).
+The wind stage's mic-ratio estimate and the engine tracker only look at nearby frames, for the same
+reason.
 
 **Memory use stays flat.** Only one chunk plus its context (under a minute of audio) is in memory
 at a time, however long the recording is.
@@ -60,9 +63,8 @@ failure is written to `errors.csv` and the run moves on to the next file.
 settings to `run_config.json`. Running again into the same folder with different settings is
 refused. To try new settings, use a new output folder and a new profile name.
 
-**It stays compatible with the old notebook.** File names, CSV columns and `run_config.json` are
-exactly what the notebook wrote, so either one can continue a folder the other started. The only
-addition is a `source_sample_rate_hz` column in `dsp_details.csv`.
+**Output folders stay resumable across versions.** File names, CSV columns and `run_config.json`
+are unchanged since carnoise 1.1, so a `carnoise_v3` folder started then can be continued now.
 
 ## Where things are
 
@@ -71,15 +73,14 @@ addition is a `source_sample_rate_hz` column in `dsp_details.csv`.
 | `constants.py` | Fixed numbers: 48 kHz, window sizes, the chunk grid. Changing them changes the sound. |
 | `config.py` | The settings you can change, and loading them from TOML |
 | `dsp/declip.py` | Repairs clipped peaks |
-| `dsp/engine.py` | Tracks the engine and removes its harmonics |
+| `dsp/engine.py` | Tracks the engine and notches its harmonics (optional, `engine_notch`) |
 | `dsp/filters.py` | High-pass and low-pass, and picking them automatically |
-| `dsp/tonal.py` | Removes steady hums (v1, and the horn-safe v3 version) |
-| `dsp/clicks.py` | Repairs mount rattle (v1 only) |
-| `dsp/wind.py` | Removes wind using the two microphones (v3) |
+| `dsp/tonal.py` | Removes steady hums; horns, sirens and alarms are kept |
+| `dsp/wind.py` | Removes wind using the two microphones |
 | `dsp/noise.py` | Estimates the background noise and reduces it |
 | `dsp/spectral.py`, `dsp/channels.py` | Small helpers |
 | `analysis.py` | The once-per-file decisions |
-| `speed.py` | Reads GPS speed: per-file speed CSVs, or the unit's `gps/` log (v3) |
+| `speed.py` | Reads GPS speed from the unit's `gps/` log |
 | `pipeline.py` | `denoise()` for one block of audio, `denoise_stream()` for whole files in chunks |
 | `io/audio.py` | FFmpeg probing and decoding |
 | `io/storage.py` | The safe copy to Drive |

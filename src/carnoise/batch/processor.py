@@ -13,7 +13,7 @@ from ..constants import FS
 from ..io.audio import decode_to_raw, open_raw, probe
 from ..io.storage import atomic_copy
 from ..pipeline import StreamResult, denoise_stream
-from ..speed import find_speed_csv, speed_from_gps
+from ..speed import speed_from_gps
 
 
 @dataclass
@@ -22,7 +22,7 @@ class FileOutcome:
     dest: Path
     sample_rate: int                 #: output sample rate (48 kHz after resampling)
     source_sample_rate: int
-    speed_csv: Optional[Path]
+    speed_csv: Optional[Path]        #: GPS log the speed came from, None = no speed found
     stream: StreamResult
 
     @property
@@ -43,8 +43,7 @@ def process_file(src: Path, dest: Path, scratch: Path, dsp: DSPConfig = DSPConfi
         scratch: an empty local working directory (the decoded audio is stored here).
         other_sample_rates: 'resample' converts non-48 kHz input to 48 kHz (output is 48 kHz);
             'error' raises ValueError for them.
-        gps_csv, start_utc: the unit's GPS log and the recording's start time. Used (v3) when there's
-            no per-file speed CSV.
+        gps_csv, start_utc: the unit's GPS log and the recording's start time (for the speed track).
     """
     if not src.is_file():
         raise FileNotFoundError(str(src))
@@ -59,12 +58,10 @@ def process_file(src: Path, dest: Path, scratch: Path, dsp: DSPConfig = DSPConfi
     local_out = scratch / "enhanced.flac"
     decode_to_raw(src, raw_path, target)
     src_mem = open_raw(raw_path, meta.channels)
-    speed_csv = find_speed_csv(src)
-    speed = speed_csv
-    if speed_csv is None and gps_csv is not None:
-        track = speed_from_gps(gps_csv, src.name, start_utc, src_mem.shape[0] / sr)
-        if len(track) and not np.all(np.isnan(track)):
-            speed, speed_csv = track, gps_csv
+    speed, speed_csv = None, None
+    track = speed_from_gps(gps_csv, src.name, start_utc, src_mem.shape[0] / sr)
+    if len(track) and not np.all(np.isnan(track)):
+        speed, speed_csv = track, gps_csv
     with sf.SoundFile(str(local_out), "w", samplerate=sr, channels=meta.channels,
                       format="FLAC", subtype=output_subtype) as writer:
         result = denoise_stream(src_mem, sr, writer.write, dsp, chunking, speed)

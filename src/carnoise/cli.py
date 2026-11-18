@@ -36,8 +36,7 @@ def _inputs(paths: list[Path]) -> list[Path]:
 def cmd_denoise(a: argparse.Namespace) -> int:
     require_ffmpeg()
     dsp = DSPConfig(high_pass_hz=a.hp, low_pass_hz=a.lp, remove_tonal_lines=not a.no_tones,
-                    click_k=a.click_k, floor_shift_db=a.floor_shift, algorithm=a.algorithm,
-                    engine_notch=a.engine_notch)
+                    floor_shift_db=a.floor_shift, engine_notch=a.engine_notch)
     a.out.mkdir(parents=True, exist_ok=True)
     failures = 0
     for src in _inputs(a.inputs):
@@ -91,12 +90,9 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--hp", default="auto", help="high-pass corner in Hz, or 'auto'")
     d.add_argument("--lp", default="auto", help="low-pass corner in Hz, 'auto' or 'none'")
     d.add_argument("--no-tones", action="store_true", help="skip the tonal-line stage")
-    d.add_argument("--click-k", type=float, default=5.0, help="click threshold vs local median")
     d.add_argument("--floor-shift", type=float, default=0.0,
                    help="dB added to the gain floor: negative = stronger, positive = more natural")
-    d.add_argument("--algorithm", choices=["v1", "v3"], default="v1",
-                   help="v1 = original processing, v3 = improved (recommended; see docs/algorithms.md)")
-    d.add_argument("--engine-notch", action="store_true", help="v3 only: also notch engine harmonics")
+    d.add_argument("--engine-notch", action="store_true", help="also notch engine harmonics")
     d.add_argument("--subtype", default="PCM_24", help="output FLAC subtype")
     d.set_defaults(func=cmd_denoise)
 
